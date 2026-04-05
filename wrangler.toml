@@ -10,5 +10,4 @@ database_id = "a7036eaf-d6e8-4855-81a4-c3405f295cb6"
 [triggers]
 crons = ["*/15 * * * *"]
 
-[vars]
-ADMIN_PASSWORD = "WQGnuAcbIByj"
+# 密码通过 wrangler secret put ADMIN_PASSWORD 设置
