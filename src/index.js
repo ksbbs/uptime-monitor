@@ -198,6 +198,8 @@ function getHtml() {
     .btn-check:hover { background: rgba(34,197,94,0.25); }
     .btn-delete { background: rgba(239,68,68,0.15); color: #ef4444; }
     .btn-delete:hover { background: rgba(239,68,68,0.25); }
+    .btn-edit { background: rgba(59, 130, 246, 0.15); color: #3b82f6; }
+    .btn-edit:hover { background: rgba(59, 130, 246, 0.25); }
     .btn-add {
       background: linear-gradient(135deg, #22c55e, #16a34a);
       color: white;
@@ -285,10 +287,20 @@ function getHtml() {
       padding: 24px;
       transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
       animation: slideIn 0.4s ease-out;
+      cursor: grab;
     }
     .monitor-card:hover {
       transform: translateY(-4px);
       box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+    }
+    .monitor-card:active { cursor: grabbing; }
+    .monitor-card.dragging {
+      opacity: 0.5;
+      transform: scale(0.98);
+    }
+    .monitor-card.drag-over {
+      border: 2px dashed #22c55e;
+      background: rgba(34, 197, 94, 0.1);
     }
     .monitor-card.loading {
       background: linear-gradient(90deg, #1e293b 25%, #273548 50%, #1e293b 75%);
@@ -528,6 +540,26 @@ function getHtml() {
     </div>
   </div>
 
+  <!-- 编辑弹窗 -->
+  <div class="modal-overlay" id="edit-modal">
+    <div class="modal">
+      <h3>编辑监控目标</h3>
+      <div class="form-group">
+        <label>网站名称</label>
+        <input type="text" id="edit-name" placeholder="例如：我的博客">
+      </div>
+      <div class="form-group">
+        <label>网站地址</label>
+        <input type="url" id="edit-url" placeholder="https://example.com">
+      </div>
+      <input type="hidden" id="edit-id">
+      <div class="modal-actions">
+        <button class="btn btn-small btn-cancel" onclick="hideEditModal()">取消</button>
+        <button class="btn btn-small btn-add" onclick="updateSite()">保存</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast -->
   <div class="toast" id="toast"></div>
 
@@ -613,7 +645,7 @@ function getHtml() {
         // 计算可用率
         const uptime = site.uptime || 0;
 
-        return '<div class="monitor-card" style="animation-delay: ' + (i * 0.05) + 's">' +
+        return '<div class="monitor-card" data-id="' + site.id + '" draggable="true" style="animation-delay: ' + (i * 0.05) + 's">' +
           '<div class="card-header">' +
             '<div class="card-info">' +
               '<h3>' + site.name + '</h3>' +
@@ -645,6 +677,7 @@ function getHtml() {
             '<div class="last-check">最后检测: ' + (site.last_check || '尚未检测') + '</div>' +
             '<div class="card-actions">' +
               '<button class="btn btn-small btn-check" onclick="checkNow(' + site.id + ')">检测</button>' +
+              '<button class="btn btn-small btn-edit" onclick="showEditModal(' + site.id + ', \\'' + site.name.replace(/'/g, "\\\\'") + '\\', \\'' + site.url + '\\')">编辑</button>' +
               '<button class="btn btn-small btn-delete" onclick="deleteSite(' + site.id + ')">删除</button>' +
             '</div>' +
           '</div>' +
@@ -723,6 +756,89 @@ function getHtml() {
       loadSites();
     }
 
+    let editingId = null;
+
+    function showEditModal(id, name, url) {
+      editingId = id;
+      document.getElementById('edit-name').value = name;
+      document.getElementById('edit-url').value = url;
+      document.getElementById('edit-modal').classList.add('show');
+    }
+
+    function hideEditModal() {
+      document.getElementById('edit-modal').classList.remove('show');
+      editingId = null;
+    }
+
+    async function updateSite() {
+      const name = document.getElementById('edit-name').value;
+      const url = document.getElementById('edit-url').value;
+      if (!name || !url) { showToast('请填写完整', 'error'); return; }
+
+      const res = await fetch(API + '/sites/' + editingId, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({ name, url })
+      });
+      if (res.ok) {
+        hideEditModal();
+        loadSites();
+        showToast('更新成功', 'success');
+      }
+    }
+
+    // 拖拽排序
+    let draggedCard = null;
+
+    document.addEventListener('dragstart', (e) => {
+      if (e.target.classList.contains('monitor-card')) {
+        draggedCard = e.target;
+        e.target.classList.add('dragging');
+      }
+    });
+
+    document.addEventListener('dragend', (e) => {
+      if (e.target.classList.contains('monitor-card')) {
+        e.target.classList.remove('dragging');
+        document.querySelectorAll('.monitor-card').forEach(c => c.classList.remove('drag-over'));
+        draggedCard = null;
+      }
+    });
+
+    document.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      const card = e.target.closest('.monitor-card');
+      if (card && card !== draggedCard) {
+        document.querySelectorAll('.monitor-card').forEach(c => c.classList.remove('drag-over'));
+        card.classList.add('drag-over');
+      }
+    });
+
+    document.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      const targetCard = e.target.closest('.monitor-card');
+      if (!targetCard || targetCard === draggedCard) return;
+
+      const cards = Array.from(document.querySelectorAll('.monitor-card'));
+      const draggedIdx = cards.indexOf(draggedCard);
+      const targetIdx = cards.indexOf(targetCard);
+
+      if (draggedIdx < targetIdx) {
+        targetCard.parentNode.insertBefore(draggedCard, targetCard.nextSibling);
+      } else {
+        targetCard.parentNode.insertBefore(draggedCard, targetCard);
+      }
+
+      // 保存排序
+      const newOrder = Array.from(document.querySelectorAll('.monitor-card')).map(c => parseInt(c.dataset.id));
+      await fetch(API + '/sites/reorder', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({ order: newOrder })
+      });
+      showToast('顺序已更新', 'success');
+    });
+
     // 自动刷新
     setInterval(loadSites, 60000);
     checkAuth();
@@ -764,7 +880,7 @@ async function handleApi(request, env, path) {
         ROW_NUMBER() OVER (PARTITION BY site_id ORDER BY checked_at DESC) as rn
         FROM checks
       ) c ON s.id = c.site_id AND c.rn = 1
-      ORDER BY s.id DESC
+      ORDER BY s.sort_order ASC, s.id DESC
     `).all();
     return new Response(JSON.stringify(result.results), { headers: { 'Content-Type': 'application/json' } });
   }
@@ -783,10 +899,31 @@ async function handleApi(request, env, path) {
   // 添加监控目标
   if (path === '/api/sites' && method === 'POST') {
     const body = await request.json();
+    // 获取当前最大排序值
+    const maxOrder = await env.DB.prepare('SELECT COALESCE(MAX(sort_order), 0) as max FROM sites').first();
     const result = await env.DB.prepare(
-      'INSERT INTO sites (url, name) VALUES (?, ?)'
-    ).bind(body.url, body.name).run();
+      'INSERT INTO sites (url, name, sort_order) VALUES (?, ?, ?)'
+    ).bind(body.url, body.name, maxOrder.max + 1).run();
     return new Response(JSON.stringify({ id: result.meta.last_row_id }), { headers: { 'Content-Type': 'application/json' } });
+  }
+
+  // 更新排序
+  if (path === '/api/sites/reorder' && method === 'PUT') {
+    const body = await request.json();
+    for (let i = 0; i < body.order.length; i++) {
+      await env.DB.prepare('UPDATE sites SET sort_order = ? WHERE id = ?').bind(i + 1, body.order[i]).run();
+    }
+    return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
+  }
+
+  // 编辑监控目标
+  if (path.match(/^\/api\/sites\/\d+$/) && method === 'PUT') {
+    const id = path.split('/')[3];
+    const body = await request.json();
+    await env.DB.prepare(
+      'UPDATE sites SET name = ?, url = ? WHERE id = ?'
+    ).bind(body.name, body.url, id).run();
+    return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
   }
 
   // 删除监控目标
@@ -824,12 +961,10 @@ async function checkAllSites(env) {
       'INSERT INTO checks (site_id, status, response_time, is_up) VALUES (?, ?, ?, ?)'
     ).bind(site.id, result.status, result.response_time, result.is_up).run();
 
-    // 清理旧记录，保留最近 100 条
-    await env.DB.prepare(`
-      DELETE FROM checks WHERE site_id = ? AND id NOT IN (
-        SELECT id FROM checks WHERE site_id = ? ORDER BY checked_at DESC LIMIT 100
-      )
-    `).bind(site.id, site.id).run();
+    // 清理30天前的检测记录
+    await env.DB.prepare(
+      "DELETE FROM checks WHERE checked_at < datetime('now', '-30 days')"
+    ).run();
   }
 }
 
