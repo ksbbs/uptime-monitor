@@ -54,6 +54,7 @@ function getHtml() {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Uptime Monitor</title>
+  <meta name="version" content="2026-04-06-v2">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐻</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -745,15 +746,16 @@ function getHtml() {
           method: 'DELETE',
           headers: { 'Authorization': 'Bearer ' + token }
         });
+        const data = await res.json();
         if (res.ok) {
           loadSites();
           showToast('已删除', 'success');
         } else {
-          const err = await res.json();
-          showToast('删除失败: ' + (err.error || '未知错误'), 'error');
+          showToast('删除失败 [' + res.status + ']: ' + (data.error || JSON.stringify(data)), 'error');
         }
       } catch (e) {
-        showToast('网络错误', 'error');
+        console.error('删除错误:', e);
+        showToast('网络错误: ' + e.message, 'error');
       }
     }
 
@@ -939,8 +941,9 @@ async function handleApi(request, env, path) {
   // 删除监控目标
   if (path.match(/^\/api\/sites\/\d+$/) && method === 'DELETE') {
     const id = path.split('/')[3];
-    await env.DB.prepare('DELETE FROM sites WHERE id = ?').bind(id).run();
+    // 先删除关联的 checks 记录，再删除 site（外键约束）
     await env.DB.prepare('DELETE FROM checks WHERE site_id = ?').bind(id).run();
+    await env.DB.prepare('DELETE FROM sites WHERE id = ?').bind(id).run();
     return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
   }
 
