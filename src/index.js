@@ -740,12 +740,21 @@ function getHtml() {
 
     async function deleteSite(id) {
       if (!confirm('确定删除此监控目标？')) return;
-      await fetch(API + '/sites/' + id, {
-        method: 'DELETE',
-        headers: { 'Authorization': 'Bearer ' + token }
-      });
-      loadSites();
-      showToast('已删除', 'success');
+      try {
+        const res = await fetch(API + '/sites/' + id, {
+          method: 'DELETE',
+          headers: { 'Authorization': 'Bearer ' + token }
+        });
+        if (res.ok) {
+          loadSites();
+          showToast('已删除', 'success');
+        } else {
+          const err = await res.json();
+          showToast('删除失败: ' + (err.error || '未知错误'), 'error');
+        }
+      } catch (e) {
+        showToast('网络错误', 'error');
+      }
     }
 
     async function checkNow(id) {
